@@ -106,7 +106,13 @@ def create_agent_node(fase_nome: str):
                 # ── Ferramentas de ação ─────────────────────────────
                 elif name == "gerar_link_pagamento":
                     has_action_tools = True
-                    result = _execute(name, args)
+                    # Injeta numero e canal do estado para que o Stripe inclua nos metadados
+                    enriched_args = {
+                        **args,
+                        "numero": state.get("numero", ""),
+                        "canal": state.get("canal_origem", "whatsapp"),
+                    }
+                    result = _execute(name, enriched_args)
                     if isinstance(result, dict):
                         updates["link_pagamento"] = result.get("url", "")
                     tool_messages.append(ToolMessage(

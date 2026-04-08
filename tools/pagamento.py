@@ -1,46 +1,51 @@
+"""
+Integração com Stripe para geração de links de pagamento.
+"""
 import os
 import stripe
 from langchain_core.tools import tool
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
-SUCCESS_URL = os.getenv("SUCCESS_URL", "https://seudominio.com.br/obrigado")
-CANCEL_URL = os.getenv("CANCEL_URL", "https://seudominio.com.br/")
-PRECO_CENTAVOS = int(os.getenv("PRECO_CENTAVOS", "4990"))  # R$49,90
+SUCCESS_URL    = os.getenv("SUCCESS_URL", "")
+CANCEL_URL     = os.getenv("CANCEL_URL", "")
+PRECO_CENTAVOS = int(os.getenv("PRECO_CENTAVOS", "4990"))
 
 
 @tool
-def gerar_link_pagamento(nome_lead: str, nome_clinica: str) -> dict:
+def gerar_link_pagamento(
+    nome_lead: str,
+    nome_clinica: str,
+    numero: str = "",
+    canal: str = "whatsapp",
+) -> dict:
     """
-    Gera um link de pagamento Stripe para o Choque de Gestão.
-    Aceita Pix e cartão. Retorna a URL de checkout para enviar ao lead.
+    Gera um link de checkout Stripe para o produto Choque de Gestão.
+    Aceita cartão de crédito/débito e Pix.
+    Inclui numero e canal nos metadados para lookup correto no webhook do Stripe.
+    Retorna {'url': str} com o link de pagamento.
     """
     stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
-
     session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        line_items=[{
-            "price_data": {
-                "currency": "brl",
-                "product_data": {
-                    "name": "Choque de Gestão — Dia Solutions",
-                    "description": f"Diagnóstico de atendimento WhatsApp — {nome_clinica}",
+        payment_method_types=["card", "pix"],
+        line_items=[
+            {
+                "price_data": {
+                    "currency": "brl",
+                    "product_data": {"name": "Choque de Gestão — Dia Solutions"},
+                    "unit_amount": PRECO_CENTAVOS,
                 },
-                "unit_amount": PRECO_CENTAVOS,
-            },
-            "quantity": 1,
-        }],
+                "quantity": 1,
+            }
+        ],
         mode="payment",
         success_url=SUCCESS_URL,
         cancel_url=CANCEL_URL,
         metadata={
             "nome_lead": nome_lead,
             "nome_clinica": nome_clinica,
-            "produto": "choque_de_gestao",
+            "numero": numero,
+            "canal": canal,
         },
     )
-    return {
-        "url": session.url,
-        "session_id": session.id,
-        "valor": f"R${PRECO_CENTAVOS / 100:.2f}",
-    }
+    return {"url": session.url}
