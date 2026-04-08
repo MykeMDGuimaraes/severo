@@ -5,10 +5,41 @@ Recebe webhooks da UazAPI e processa com o grafo LangGraph.
 
 import logging
 import os
+import time
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ── Rate limiting — bloqueia loops antes de chamar o modelo ───────────────
+_call_timestamps: dict[str, list[float]] = defaultdict(list)
+
+_MAX_POR_MINUTO = int(os.getenv("MAX_CALLS_POR_MINUTO", "5"))
+_MAX_POR_HORA   = int(os.getenv("MAX_CALLS_POR_HORA",   "20"))
+
+
+def _permitir_chamada(numero: str) -> bool:
+    """
+    Retorna True se o número pode ser processado agora.
+    Retorna False se excedeu o limite — sem invocar o modelo.
+    """
+    agora = time.monotonic()
+    historico = _call_timestamps[numero]
+
+    # Descartar entradas com mais de 1 hora
+    _call_timestamps[numero] = [t for t in historico if agora - t < 3600]
+
+    por_minuto = sum(1 for t in _call_timestamps[numero] if agora - t < 60)
+    por_hora   = len(_call_timestamps[numero])
+
+    if por_minuto >= _MAX_POR_MINUTO:
+        return False
+    if por_hora >= _MAX_POR_HORA:
+        return False
+
+    _call_timestamps[numero].append(agora)
+    return True
 
 from fastapi import FastAPI, Request, HTTPException
 from langchain_core.messages import HumanMessage, AIMessage
@@ -126,6 +157,10 @@ async def receber_mensagem(request: Request):
     texto = _extrair_texto(data.get("message", {}))
     if not texto:
         return {"status": "ignored", "reason": "no_text"}
+
+    if not _permitir_chamada(numero):
+        logger.warning("[RATE LIMIT] %s — chamadas excessivas bloqueadas", numero)
+        return {"status": "rate_limited", "numero": numero}
 
     logger.info("[%s→ARGOS] %s", numero, texto[:80])
 

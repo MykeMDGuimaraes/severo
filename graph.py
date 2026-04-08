@@ -22,10 +22,13 @@ FASE_PARA_NO = {
 }
 
 
-def _rotear(state: dict) -> str:
+def _rotear_entrada(state: dict) -> str:
     """
-    Decide para qual nó ir baseado no campo `fase` do estado.
-    Se fase == 'encerrado' ou não reconhecida → END.
+    Roteador de entrada: decide qual nó executar baseado na fase atual.
+    Chamado UMA vez por invocação — o nó executa e vai direto ao END.
+    Isso garante que o grafo para após cada mensagem do lead,
+    evitando encadeamento automático de nós (que causaria N chamadas
+    ao modelo sem esperar resposta do usuário).
     """
     fase = state.get("fase", "qualificacao_lead")
     return FASE_PARA_NO.get(fase, END)
@@ -43,23 +46,18 @@ def criar_grafo() -> StateGraph:
     grafo.add_node("instrucao_conexao",      node_conexao)
     grafo.add_node("conexao_estabelecida",   node_estabelecida)
 
-    # ── Ponto de entrada ───────────────────────────────────────────
-    grafo.set_entry_point("qualificacao_lead")
+    # ── Roteador de entrada (nó passthrough sem custo) ─────────────
+    # __inicio__ lê state["fase"] e roteia para o nó correto.
+    # Após o nó executar, vai direto ao END — sem encadeamento.
+    grafo.add_node("__inicio__", lambda state: {})
+    grafo.set_entry_point("__inicio__")
+    grafo.add_conditional_edges("__inicio__", _rotear_entrada)
 
-    # ── Roteamento condicional (avanço de fase dentro da invocação) ─
-    fases_com_avanco = [
-        "qualificacao_lead",
-        "aprofundamento_da_dor",
-        "apresentacao_da_oferta",
-        "gerar_link_pagamento",
-        "confirmacao_pagamento",
-        "instrucao_conexao",
-    ]
-    for fase in fases_com_avanco:
-        grafo.add_conditional_edges(fase, _rotear)
-
-    # Fase final sempre termina
-    grafo.add_edge("conexao_estabelecida", END)
+    # ── Todos os nós terminam após executar ────────────────────────
+    # O grafo para aqui. A próxima mensagem do lead inicia nova invocação
+    # e __inicio__ roteia para a fase correta (que pode ter avançado).
+    for no in FASE_PARA_NO.values():
+        grafo.add_edge(no, END)
 
     return grafo.compile()
 
