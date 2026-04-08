@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from supabase import create_client, Client
+from langchain_core.messages import messages_from_dict
 
 logger = logging.getLogger("argos")
 
@@ -37,7 +38,16 @@ def get(numero: str, canal: str = "whatsapp") -> Optional[dict]:
             .execute()
         )
         if resp.data:
-            return resp.data[0]["state"]
+            state = resp.data[0]["state"]
+            # Reconstrói objetos LangChain a partir do JSONB do Supabase.
+            # Sem isso, messages seriam dicts crus e o grafo quebraria.
+            if "messages" in state and state["messages"]:
+                try:
+                    state["messages"] = messages_from_dict(state["messages"])
+                except Exception as e:
+                    logger.warning("[STORE] Falha ao deserializar messages para %s/%s: %s", canal, numero, e)
+                    state["messages"] = []
+            return state
         return None
     except Exception as e:
         logger.error("[STORE] Erro ao carregar sessão %s/%s: %s", canal, numero, e)

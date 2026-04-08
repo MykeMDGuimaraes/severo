@@ -5,8 +5,7 @@ from langchain_core.tools import tool
 
 def _headers() -> dict:
     return {
-        "token": os.getenv("UAZAPI_TOKEN", ""),
-        "Content-Type": "application/json",
+        "apikey": os.getenv("UAZAPI_TOKEN", ""),
     }
 
 

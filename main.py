@@ -130,8 +130,12 @@ def _enviar_respostas(canal, numero: str, estado_antes: dict, estado_depois: dic
 async def receber_mensagem(canal_nome: str, request: Request):
     """
     Webhook unificado — recebe eventos de qualquer canal registrado.
-    Rota: POST /webhook/whatsapp ou POST /webhook/telegram
-    (Nota: /webhook/stripe é tratado separadamente pelo stripe_router)
+    Rotas: POST /webhook/whatsapp ou POST /webhook/telegram
+
+    NOTA: /webhook/stripe é registrado pelo stripe_router (include_router) e tem
+    prioridade de matching sobre esta rota genérica. Se canal_nome == 'stripe',
+    esta função nunca é chamada — o stripe_router intercepta antes.
+    Qualquer canal_nome não registrado em CANAIS retorna canal_desconhecido.
     """
     canal = CANAIS.get(canal_nome)
     if not canal:
@@ -207,8 +211,13 @@ async def health():
 
 
 @app.delete("/sessao/{canal}/{numero}")
-async def resetar_sessao(canal: str, numero: str):
-    """Reseta sessão de um lead. Útil para testes."""
+async def resetar_sessao(canal: str, numero: str, request: Request):
+    """Reseta sessão de um lead. Requer header Authorization: Bearer <ADMIN_SECRET>."""
+    admin_secret = os.getenv("ADMIN_SECRET", "")
+    if admin_secret:
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {admin_secret}":
+            raise HTTPException(status_code=401, detail="Não autorizado")
     store.delete(numero, canal)
     return {"status": "resetado", "canal": canal, "numero": numero}
 
