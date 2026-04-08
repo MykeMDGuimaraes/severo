@@ -19,8 +19,10 @@ class AgentState(TypedDict):
     conexao_estabelecida: bool
     link_pagamento: Optional[str]
 
-    canal_origem: str  # instagram | direto | indicacao
+    canal_origem: str  # whatsapp | telegram
 
     usa_whatsapp: Optional[bool]
     lead_qualificado: Optional[bool]
     objecao_ativa: Optional[str]
+
+    numero: Optional[str]  # identificador do lead: telefone (WhatsApp) ou chat_id (Telegram)
