@@ -13,6 +13,7 @@ Cada nó segue o mesmo ciclo:
 
 import os
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage, ToolMessage, AIMessage
 from prompts.fases import get_prompt_fase
@@ -22,19 +23,33 @@ logger = logging.getLogger("argos")
 
 MODEL_ID = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
 MAX_TOOL_ITERATIONS = 5
+TOOL_TIMEOUT = int(os.getenv("TOOL_TIMEOUT_SECONDS", "15"))
 
 _model = ChatAnthropic(model=MODEL_ID, temperature=0.3)
 _model_with_tools = _model.bind_tools(ALL_TOOLS)
 
-# Mapeamento nome → função de execução (ferramentas de ação)
 _TOOL_FN = {t.name: t for t in ALL_TOOLS}
 
 
 def _execute(tool_name: str, args: dict):
+    """
+    Executa uma tool com timeout.
+    Retorna o resultado ou uma string de erro — nunca propaga exceção.
+    Isso garante que o modelo receba um ToolMessage válido mesmo em falhas.
+    """
     fn = _TOOL_FN.get(tool_name)
     if fn is None:
         return f"Tool '{tool_name}' não encontrada."
-    return fn.invoke(args)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(fn.invoke, args)
+            return future.result(timeout=TOOL_TIMEOUT)
+    except FuturesTimeout:
+        logger.error("[ARGOS] Timeout na tool '%s' após %ds", tool_name, TOOL_TIMEOUT)
+        return f"Erro: tool '{tool_name}' não respondeu em {TOOL_TIMEOUT}s. Tente novamente."
+    except Exception as e:
+        logger.error("[ARGOS] Erro na tool '%s': %s", tool_name, e)
+        return f"Erro ao executar '{tool_name}': {str(e)}"
 
 
 def create_agent_node(fase_nome: str):
