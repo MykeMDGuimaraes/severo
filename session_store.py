@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from supabase import create_client, Client
-from langchain_core.messages import messages_from_dict
+from langchain_core.messages import messages_from_dict, messages_to_dict
 
 logger = logging.getLogger("argos")
 
@@ -57,11 +57,18 @@ def get(numero: str, canal: str = "whatsapp") -> Optional[dict]:
 def set(numero: str, estado: dict, canal: str = "whatsapp") -> None:
     """Salva (cria ou atualiza) estado da sessão."""
     try:
+        estado_serializavel = dict(estado)
+        if "messages" in estado_serializavel and estado_serializavel["messages"]:
+            try:
+                estado_serializavel["messages"] = messages_to_dict(estado_serializavel["messages"])
+            except Exception as e:
+                logger.warning("[STORE] Falha ao serializar messages %s/%s: %s", canal, numero, e)
+                estado_serializavel["messages"] = []
         _get_client().table(_TABLE).upsert(
             {
                 "numero": numero,
                 "canal": canal,
-                "state": estado,
+                "state": estado_serializavel,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
         ).execute()
