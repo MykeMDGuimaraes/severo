@@ -9,7 +9,7 @@ import requests
 
 from .base import Channel
 
-logger = logging.getLogger("argos")
+logger = logging.getLogger("severo")
 
 
 def _headers() -> dict:
@@ -32,7 +32,7 @@ class WhatsAppChannel(Channel):
         data = body.get("data", {})
         key = data.get("key", {})
 
-        # Ignorar mensagens enviadas pelo próprio Argos
+        # Ignorar mensagens enviadas pelo próprio Severo
         if key.get("fromMe", False):
             return None
 
@@ -59,7 +59,7 @@ class WhatsAppChannel(Channel):
         ).strip()
 
     def send(self, numero: str, texto: str) -> bool:
-        instance = os.getenv("UAZAPI_INSTANCE", "argos")
+        instance = os.getenv("UAZAPI_INSTANCE", "severo")
         try:
             resp = requests.post(
                 _url(f"/message/sendText/{instance}"),

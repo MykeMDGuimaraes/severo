@@ -9,7 +9,7 @@ import requests
 
 from .base import Channel
 
-logger = logging.getLogger("argos")
+logger = logging.getLogger("severo")
 
 
 class TelegramChannel(Channel):

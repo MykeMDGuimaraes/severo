@@ -1,5 +1,5 @@
 """
-Interface base para canais de mensagem do Argos.
+Interface base para canais de mensagem do Severo.
 Cada canal implementa parse_incoming (entrada) e send (saída).
 """
 from abc import ABC, abstractmethod

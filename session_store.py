@@ -1,5 +1,5 @@
 """
-Persistência de sessões do Argos via Supabase.
+Persistência de sessões do Severo via Supabase.
 Interface pública: get / set / delete / cleanup_old
 main.py usa apenas estas funções — agnóstico do backend.
 """
@@ -11,10 +11,10 @@ from typing import Optional
 from supabase import create_client, Client
 from langchain_core.messages import messages_from_dict, messages_to_dict
 
-logger = logging.getLogger("argos")
+logger = logging.getLogger("severo")
 
 _client: Optional[Client] = None
-_TABLE = "argos_sessions"
+_TABLE = "severo_sessions"
 
 
 def _get_client() -> Client:

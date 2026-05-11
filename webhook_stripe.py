@@ -9,7 +9,7 @@ from fastapi import APIRouter, Request, HTTPException
 
 import session_store as store
 
-logger = logging.getLogger("argos")
+logger = logging.getLogger("severo")
 router = APIRouter()
 
 
