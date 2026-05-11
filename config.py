@@ -28,7 +28,7 @@ def validate() -> None:
     missing = [v for v in REQUIRED_VARS if not os.getenv(v, "").strip()]
     if missing:
         print(
-            f"[ARGOS] ERRO: variáveis obrigatórias ausentes: {', '.join(missing)}",
+            f"[SEVERO] ERRO: variáveis obrigatórias ausentes: {', '.join(missing)}",
             file=sys.stderr,
         )
         raise SystemExit(1)
