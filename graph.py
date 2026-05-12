@@ -63,4 +63,4 @@ def criar_grafo() -> StateGraph:
 
 
 # Instância global do agente compilado
-argos = criar_grafo()
+severo = criar_grafo()

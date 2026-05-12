@@ -1,5 +1,5 @@
 """
-Argos — Entrypoint FastAPI
+Severo — Entrypoint FastAPI
 Recebe webhooks de qualquer canal registrado e processa com o grafo LangGraph.
 """
 import logging
@@ -19,7 +19,7 @@ config.validate()
 from fastapi import FastAPI, Request, HTTPException
 from langchain_core.messages import HumanMessage, AIMessage
 
-from graph import argos
+from graph import severo
 from state import AgentState
 import session_store as store
 from channels import WhatsAppChannel, TelegramChannel
@@ -29,7 +29,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
 )
-logger = logging.getLogger("argos")
+logger = logging.getLogger("severo")
 
 # ── Rate limiting ──────────────────────────────────────────────────────────
 _call_timestamps: dict[str, list[float]] = defaultdict(list)
@@ -94,12 +94,12 @@ async def lifespan(app: FastAPI):
     deleted = store.cleanup_old(days=30)
     logger.info("🧹 Cleanup: %d sessões antigas removidas", deleted)
 
-    logger.info("🟢 Argos iniciado — canais: %s", list(CANAIS.keys()))
+    logger.info("🟢 Severo iniciado — canais: %s", list(CANAIS.keys()))
     yield
-    logger.info("🔴 Argos encerrado.")
+    logger.info("🔴 Severo encerrado.")
 
 
-app = FastAPI(title="Argos — Dia Solutions", lifespan=lifespan)
+app = FastAPI(title="Severo — Dia Solutions", lifespan=lifespan)
 app.include_router(stripe_router)
 
 
@@ -119,7 +119,7 @@ def _enviar_respostas(canal, numero: str, estado_antes: dict, estado_depois: dic
             if texto:
                 ok = canal.send(numero, texto)
                 logger.info(
-                    "[ARGOS→%s/%s] fase=%s msg=%s… ok=%s",
+                    "[SEVERO→%s/%s] fase=%s msg=%s… ok=%s",
                     canal.name, numero[:6],
                     estado_depois.get("fase", "?"),
                     texto[:50], ok,
@@ -170,13 +170,13 @@ async def receber_mensagem(canal_nome: str, request: Request):
         logger.warning("[RATE LIMIT] %s bloqueado", chave)
         return {"status": "rate_limited"}
 
-    logger.info("[%s/%s→ARGOS] %s", canal_nome, numero[:6], texto[:80])
+    logger.info("[%s/%s→SEVERO] %s", canal_nome, numero[:6], texto[:80])
 
     # Carregar ou criar sessão
     estado = store.get(numero, canal_nome)
     if estado is None:
         estado = _nova_sessao(canal_nome, numero)
-        logger.info("[ARGOS] Nova sessão: %s/%s", canal_nome, numero[:6])
+        logger.info("[SEVERO] Nova sessão: %s/%s", canal_nome, numero[:6])
     else:
         # Garantir que numero está sempre atualizado no estado
         estado["numero"] = numero
@@ -186,9 +186,9 @@ async def receber_mensagem(canal_nome: str, request: Request):
 
     # Invocar grafo
     try:
-        novo_estado = argos.invoke(estado)
+        novo_estado = severo.invoke(estado)
     except Exception as e:
-        logger.exception("[ARGOS] Erro no grafo para %s/%s", canal_nome, numero)
+        logger.exception("[SEVERO] Erro no grafo para %s/%s", canal_nome, numero)
         canal.send(numero, "Tive um problema técnico aqui. Pode repetir sua mensagem? 🙏")
         return {"status": "error", "detail": str(e)}
 
@@ -198,7 +198,7 @@ async def receber_mensagem(canal_nome: str, request: Request):
     # Enviar respostas ao lead
     _enviar_respostas(canal, numero, estado_antes, novo_estado)
 
-    logger.info("[ARGOS] %s/%s → fase=%s", canal_nome, numero[:6], novo_estado.get("fase"))
+    logger.info("[SEVERO] %s/%s → fase=%s", canal_nome, numero[:6], novo_estado.get("fase"))
     return {"status": "ok", "fase": novo_estado.get("fase")}
 
 
