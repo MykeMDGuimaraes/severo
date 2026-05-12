@@ -41,7 +41,7 @@ def test_set_chama_upsert(mock_supabase):
     import session_store
     estado = {"fase": "qualificacao_lead", "messages": []}
     session_store.set("5511999", estado, "whatsapp")
-    mock_supabase.table.assert_called_with("argos_sessions")
+    mock_supabase.table.assert_called_with("severo_sessions")
     mock_supabase.table.return_value.upsert.assert_called_once()
 
 
@@ -49,7 +49,7 @@ def test_delete_chama_delete(mock_supabase):
     _make_chain(mock_supabase)
     import session_store
     session_store.delete("5511999", "whatsapp")
-    mock_supabase.table.assert_called_with("argos_sessions")
+    mock_supabase.table.assert_called_with("severo_sessions")
 
 
 def test_cleanup_old_retorna_count(mock_supabase):
