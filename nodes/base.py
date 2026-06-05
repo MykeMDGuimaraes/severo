@@ -1,5 +1,5 @@
 """
-Factory de nós do Argos.
+Factory de nós do Severo.
 
 Cada nó segue o mesmo ciclo:
   1. Monta contexto (SystemMessage + histórico)
@@ -13,28 +13,43 @@ Cada nó segue o mesmo ciclo:
 
 import os
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage, ToolMessage, AIMessage
 from prompts.fases import get_prompt_fase
 from tools import ALL_TOOLS
 
-logger = logging.getLogger("argos")
+logger = logging.getLogger("severo")
 
 MODEL_ID = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
 MAX_TOOL_ITERATIONS = 5
+TOOL_TIMEOUT = int(os.getenv("TOOL_TIMEOUT_SECONDS", "15"))
 
 _model = ChatAnthropic(model=MODEL_ID, temperature=0.3)
 _model_with_tools = _model.bind_tools(ALL_TOOLS)
 
-# Mapeamento nome → função de execução (ferramentas de ação)
 _TOOL_FN = {t.name: t for t in ALL_TOOLS}
 
 
 def _execute(tool_name: str, args: dict):
+    """
+    Executa uma tool com timeout.
+    Retorna o resultado ou uma string de erro — nunca propaga exceção.
+    Isso garante que o modelo receba um ToolMessage válido mesmo em falhas.
+    """
     fn = _TOOL_FN.get(tool_name)
     if fn is None:
         return f"Tool '{tool_name}' não encontrada."
-    return fn.invoke(args)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(fn.invoke, args)
+            return future.result(timeout=TOOL_TIMEOUT)
+    except FuturesTimeout:
+        logger.error("[SEVERO] Timeout na tool '%s' após %ds", tool_name, TOOL_TIMEOUT)
+        return f"Erro: tool '{tool_name}' não respondeu em {TOOL_TIMEOUT}s. Tente novamente."
+    except Exception as e:
+        logger.error("[SEVERO] Erro na tool '%s': %s", tool_name, e)
+        return f"Erro ao executar '{tool_name}': {str(e)}"
 
 
 def create_agent_node(fase_nome: str):
@@ -76,7 +91,7 @@ def create_agent_node(fase_nome: str):
                         content=f"Fase avançada para: {proxima}",
                         tool_call_id=tid,
                     ))
-                    logger.info("[ARGOS] avancar_fase → %s", proxima)
+                    logger.info("[SEVERO] avancar_fase → %s", proxima)
 
                 elif name == "registrar_lead":
                     updates["nome_lead"] = args.get("nome_lead")
@@ -85,20 +100,26 @@ def create_agent_node(fase_nome: str):
                         content="Dados do lead registrados com sucesso.",
                         tool_call_id=tid,
                     ))
-                    logger.info("[ARGOS] registrar_lead → %s / %s",
+                    logger.info("[SEVERO] registrar_lead → %s / %s",
                                 args.get("nome_lead"), args.get("nome_clinica"))
 
                 # ── Ferramentas de ação ─────────────────────────────
                 elif name == "gerar_link_pagamento":
                     has_action_tools = True
-                    result = _execute(name, args)
+                    # Injeta numero e canal do estado para que o Stripe inclua nos metadados
+                    enriched_args = {
+                        **args,
+                        "numero": state.get("numero", ""),
+                        "canal": state.get("canal_origem", "whatsapp"),
+                    }
+                    result = _execute(name, enriched_args)
                     if isinstance(result, dict):
                         updates["link_pagamento"] = result.get("url", "")
                     tool_messages.append(ToolMessage(
                         content=str(result),
                         tool_call_id=tid,
                     ))
-                    logger.info("[ARGOS] gerar_link_pagamento → %s",
+                    logger.info("[SEVERO] gerar_link_pagamento → %s",
                                 updates.get("link_pagamento"))
 
                 elif name == "criar_instancia_whatsapp":
@@ -110,7 +131,7 @@ def create_agent_node(fase_nome: str):
                         content=str(result),
                         tool_call_id=tid,
                     ))
-                    logger.info("[ARGOS] criar_instancia_whatsapp → token=%s",
+                    logger.info("[SEVERO] criar_instancia_whatsapp → token=%s",
                                 updates.get("token_gerado"))
 
                 elif name == "verificar_conexao_whatsapp":
@@ -122,7 +143,7 @@ def create_agent_node(fase_nome: str):
                         content=str(result),
                         tool_call_id=tid,
                     ))
-                    logger.info("[ARGOS] verificar_conexao_whatsapp → %s",
+                    logger.info("[SEVERO] verificar_conexao_whatsapp → %s",
                                 updates.get("conexao_estabelecida"))
 
                 elif name == "contornar_objecoes":
@@ -149,7 +170,7 @@ def create_agent_node(fase_nome: str):
             # Há ferramentas de ação → re-invocar para gerar resposta
             # incorporando os resultados das tools
             if iteration == MAX_TOOL_ITERATIONS - 1:
-                logger.warning("[ARGOS] MAX_TOOL_ITERATIONS atingido na fase %s", fase_nome)
+                logger.warning("[SEVERO] MAX_TOOL_ITERATIONS atingido na fase %s", fase_nome)
 
         # Monta o retorno — só os deltas (add_messages faz o append)
         return {

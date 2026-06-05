@@ -1,0 +1,113 @@
+"""
+Persistência de sessões do Severo via Supabase.
+Interface pública: get / set / delete / cleanup_old
+main.py usa apenas estas funções — agnóstico do backend.
+"""
+import os
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+from supabase import create_client, Client
+from langchain_core.messages import messages_from_dict, messages_to_dict
+
+logger = logging.getLogger("severo")
+
+_client: Optional[Client] = None
+_TABLE = "severo_sessions"
+
+
+def _get_client() -> Client:
+    global _client
+    if _client is None:
+        url = os.getenv("SUPABASE_URL", "")
+        key = os.getenv("SUPABASE_SERVICE_KEY", "")
+        _client = create_client(url, key)
+    return _client
+
+
+def get(numero: str, canal: str = "whatsapp") -> Optional[dict]:
+    """Carrega estado da sessão. Retorna None se não existir."""
+    try:
+        resp = (
+            _get_client()
+            .table(_TABLE)
+            .select("state")
+            .eq("numero", numero)
+            .eq("canal", canal)
+            .execute()
+        )
+        if resp.data:
+            state = resp.data[0]["state"]
+            # Reconstrói objetos LangChain a partir do JSONB do Supabase.
+            # Sem isso, messages seriam dicts crus e o grafo quebraria.
+            if "messages" in state and state["messages"]:
+                try:
+                    state["messages"] = messages_from_dict(state["messages"])
+                except Exception as e:
+                    logger.warning("[STORE] Falha ao deserializar messages para %s/%s: %s", canal, numero, e)
+                    state["messages"] = []
+            return state
+        return None
+    except Exception as e:
+        logger.error("[STORE] Erro ao carregar sessão %s/%s: %s", canal, numero, e)
+        return None
+
+
+def set(numero: str, estado: dict, canal: str = "whatsapp") -> None:
+    """Salva (cria ou atualiza) estado da sessão."""
+    try:
+        estado_serializavel = dict(estado)
+        if "messages" in estado_serializavel and estado_serializavel["messages"]:
+            try:
+                estado_serializavel["messages"] = messages_to_dict(estado_serializavel["messages"])
+            except Exception as e:
+                logger.warning("[STORE] Falha ao serializar messages %s/%s: %s", canal, numero, e)
+                estado_serializavel["messages"] = []
+        _get_client().table(_TABLE).upsert(
+            {
+                "numero": numero,
+                "canal": canal,
+                "state": estado_serializavel,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).execute()
+    except Exception as e:
+        logger.error("[STORE] Erro ao salvar sessão %s/%s: %s", canal, numero, e)
+
+
+def delete(numero: str, canal: str = "whatsapp") -> None:
+    """Remove sessão (usado no endpoint DELETE /sessao/{canal}/{numero})."""
+    try:
+        (
+            _get_client()
+            .table(_TABLE)
+            .delete()
+            .eq("numero", numero)
+            .eq("canal", canal)
+            .execute()
+        )
+    except Exception as e:
+        logger.error("[STORE] Erro ao deletar sessão %s/%s: %s", canal, numero, e)
+
+
+def cleanup_old(days: int = 30) -> int:
+    """
+    Remove sessões sem atualização nos últimos `days` dias.
+    Retorna a quantidade de sessões removidas.
+    """
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        resp = (
+            _get_client()
+            .table(_TABLE)
+            .delete()
+            .lt("updated_at", cutoff)
+            .execute()
+        )
+        count = len(resp.data) if resp.data else 0
+        logger.info("[STORE] cleanup_old: %d sessões removidas (cutoff=%s)", count, cutoff)
+        return count
+    except Exception as e:
+        logger.error("[STORE] Erro no cleanup: %s", e)
+        return 0

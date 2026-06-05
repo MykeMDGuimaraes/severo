@@ -1,19 +1,19 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────
-# Argos — Deploy Script para Ubuntu (Hostinger VPS)
+# Severo — Deploy Script para Ubuntu (Hostinger VPS)
 # Uso: bash deploy.sh
 # ─────────────────────────────────────────────────────────────
 
 set -e
 
-REPO="https://github.com/MykeMDGuimaraes/argos.git"
-APP_DIR="/opt/argos"
-SERVICE_NAME="argos"
+REPO="https://github.com/MykeMDGuimaraes/severo.git"
+APP_DIR="/opt/severo"
+SERVICE_NAME="severo"
 PYTHON="python3"
 
 echo ""
 echo "================================================"
-echo "  🤖 Argos — Deploy Automático"
+echo "  🤖 Severo — Deploy Automático"
 echo "================================================"
 echo ""
 
@@ -68,7 +68,7 @@ fi
 echo "⚙️  Configurando serviço systemd..."
 cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
 [Unit]
-Description=Argos — Agente Conversacional Dia Solutions
+Description=Severo — Agente Conversacional Dia Solutions
 After=network.target
 Wants=network-online.target
 
@@ -101,7 +101,7 @@ echo ""
 echo "  1. Edite o .env com suas credenciais:"
 echo "     nano $APP_DIR/.env"
 echo ""
-echo "  2. Inicie o Argos:"
+echo "  2. Inicie o Severo:"
 echo "     systemctl start $SERVICE_NAME"
 echo ""
 echo "  3. Verifique se está rodando:"

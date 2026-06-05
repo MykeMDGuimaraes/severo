@@ -5,8 +5,7 @@ from langchain_core.tools import tool
 
 def _headers() -> dict:
     return {
-        "token": os.getenv("UAZAPI_TOKEN", ""),
-        "Content-Type": "application/json",
+        "apikey": os.getenv("UAZAPI_TOKEN", ""),
     }
 
 
@@ -86,8 +85,8 @@ def verificar_conexao_whatsapp(instance_name: str) -> dict:
 
 
 def enviar_mensagem(numero: str, texto: str) -> bool:
-    """Envia mensagem de texto via UazAPI pela instância principal do Argos."""
-    instance = os.getenv("UAZAPI_INSTANCE", "argos")
+    """Envia mensagem de texto via UazAPI pela instância principal do Severo."""
+    instance = os.getenv("UAZAPI_INSTANCE", "severo")
     payload = {
         "number": numero,
         "text": texto,
@@ -103,7 +102,7 @@ def enviar_mensagem(numero: str, texto: str) -> bool:
         )
         return resp.status_code == 200
     except Exception as e:
-        print(f"[ARGOS] Erro ao enviar mensagem para {numero}: {e}")
+        print(f"[SEVERO] Erro ao enviar mensagem para {numero}: {e}")
         return False
 
 

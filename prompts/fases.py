@@ -18,7 +18,7 @@ def get_prompt_fase(fase: str) -> str:
             "vai direto ao ponto — sem formulário, sem enrolação.\n\n"
             "## CONDUTA\n"
             "1. Abertura — UMA mensagem, acolhedora e direta:\n"
-            "'Olá! 👋 Aqui é o Argos, da Dia Solutions. "
+            "'Olá! 👋 Aqui é o Severo, da Dia Solutions. "
             "Vi que você veio pelo Instagram, boa escolha. "
             "Com quem eu falo? E qual é o nome da sua clínica?'\n\n"
             "2. Aguarde a resposta. Após receber nome e clínica, "
