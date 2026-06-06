@@ -154,6 +154,15 @@ def create_agent_node(fase_nome: str):
                         tool_call_id=tid,
                     ))
 
+                elif name == "escalar_para_humano":
+                    has_action_tools = True
+                    result = _execute(name, args)
+                    tool_messages.append(ToolMessage(
+                        content=str(result),
+                        tool_call_id=tid,
+                    ))
+                    logger.info("[SEVERO] escalar_para_humano → motivo=%s", args.get("motivo"))
+
                 else:
                     tool_messages.append(ToolMessage(
                         content=f"Tool '{name}' processada.",

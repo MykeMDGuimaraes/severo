@@ -82,6 +82,12 @@ def get_prompt_fase(fase: str) -> str:
             "Não avance sem confirmação explícita de dor.\n"
             "Não introduza o benchmark antes de ouvir a resposta.\n"
             "Não envie mais de uma frase por mensagem."
+            "\n\n## QUANDO CHAMAR UMA PESSOA DO TIME\n"
+            "Se o lead pedir para falar com um humano, trouxer uma reclamação "
+            "séria, ou repetir a mesma objeção por dois turnos sem avançar, chame "
+            "escalar_para_humano(motivo, resumo_conversa) e avise o lead que "
+            "alguém do time vai assumir. Faça isso com naturalidade, mantendo o "
+            "tom acolhedor."
         )
 
     # ─────────────────────────────────────────────
