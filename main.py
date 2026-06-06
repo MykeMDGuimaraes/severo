@@ -22,6 +22,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from graph import severo
 from state import AgentState
 import session_store as store
+from dedup import DedupCache
 from channels import WhatsAppChannel, TelegramChannel
 from webhook_stripe import router as stripe_router
 
@@ -74,6 +75,10 @@ CANAIS = {
     "telegram": TelegramChannel(),
 }
 
+_dedup = DedupCache(ttl_seconds=600)
+_WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+_MEDIA_FALLBACK_MSG = "Recebi! Por aqui ainda só leio texto 🙂 Pode me escrever?"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -84,7 +89,7 @@ async def lifespan(app: FastAPI):
 
     if tg_token and base_url:
         canal_tg = CANAIS["telegram"]
-        wh_url = f"{base_url.rstrip('/')}/webhook/telegram"
+        wh_url = f"{base_url.rstrip('/')}/webhook/telegram/{os.getenv('WEBHOOK_SECRET','')}"
         ok = canal_tg.setup_webhook(wh_url, tg_secret)
         logger.info("🤖 Telegram webhook registrado: %s → %s", wh_url, "OK" if ok else "ERRO")
     else:
@@ -126,22 +131,20 @@ def _enviar_respostas(canal, numero: str, estado_antes: dict, estado_depois: dic
                 )
 
 
-@app.post("/webhook/{canal_nome}")
-async def receber_mensagem(canal_nome: str, request: Request):
+@app.post("/webhook/{canal_nome}/{webhook_secret}")
+async def receber_mensagem(canal_nome: str, webhook_secret: str, request: Request):
     """
-    Webhook unificado — recebe eventos de qualquer canal registrado.
-    Rotas: POST /webhook/whatsapp ou POST /webhook/telegram
+    Webhook unificado com path secreto.
+    Rotas válidas: POST /webhook/whatsapp/<WEBHOOK_SECRET> ou /webhook/telegram/<WEBHOOK_SECRET>.
+    Secret inválido → 404 (não confirma a existência da rota).
+    """
+    if not _WEBHOOK_SECRET or webhook_secret != _WEBHOOK_SECRET:
+        raise HTTPException(status_code=404, detail="Not Found")
 
-    NOTA: /webhook/stripe é registrado pelo stripe_router (include_router) e tem
-    prioridade de matching sobre esta rota genérica. Se canal_nome == 'stripe',
-    esta função nunca é chamada — o stripe_router intercepta antes.
-    Qualquer canal_nome não registrado em CANAIS retorna canal_desconhecido.
-    """
     canal = CANAIS.get(canal_nome)
     if not canal:
-        return {"status": "canal_desconhecido", "canal": canal_nome}
+        raise HTTPException(status_code=404, detail="Not Found")
 
-    # Validação de autenticidade para Telegram
     if canal_nome == "telegram":
         secret_recebido = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
         secret_esperado = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
@@ -153,18 +156,29 @@ async def receber_mensagem(canal_nome: str, request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="JSON inválido")
 
-    resultado = canal.parse_incoming(body)
-    if not resultado:
-        return {"status": "ignored"}
+    parsed = canal.parse_incoming(body)
 
-    numero, texto = resultado
+    if parsed.action == "ignore":
+        logger.info("[%s] drop reason=%s num=%s",
+                    canal_nome, parsed.reason, parsed.user_id[:6])
+        return {"status": "ignored", "reason": parsed.reason}
 
-    # Truncar mensagens muito longas antes de chamar o modelo
+    if _dedup.is_duplicate(parsed.message_id):
+        logger.info("[%s] duplicate msg_id=%s", canal_nome, parsed.message_id)
+        return {"status": "duplicate"}
+
+    if parsed.action == "media_fallback":
+        canal.send(parsed.user_id, _MEDIA_FALLBACK_MSG)
+        logger.info("[%s/%s] media_fallback respondido", canal_nome, parsed.user_id[:6])
+        return {"status": "media_fallback"}
+
+    numero = parsed.user_id
+    texto = parsed.text
+
     if len(texto) > _MAX_MSG_LEN:
         logger.warning("[%s/%s] Mensagem truncada: %d chars", canal_nome, numero[:6], len(texto))
         texto = texto[:_MAX_MSG_LEN]
 
-    # Rate limiting por canal+numero
     chave = f"{canal_nome}:{numero}"
     if not _permitir_chamada(chave):
         logger.warning("[RATE LIMIT] %s bloqueado", chave)
@@ -172,19 +186,16 @@ async def receber_mensagem(canal_nome: str, request: Request):
 
     logger.info("[%s/%s→SEVERO] %s", canal_nome, numero[:6], texto[:80])
 
-    # Carregar ou criar sessão
     estado = store.get(numero, canal_nome)
     if estado is None:
         estado = _nova_sessao(canal_nome, numero)
         logger.info("[SEVERO] Nova sessão: %s/%s", canal_nome, numero[:6])
     else:
-        # Garantir que numero está sempre atualizado no estado
         estado["numero"] = numero
 
     estado_antes = {**estado, "messages": list(estado["messages"])}
     estado["messages"] = list(estado["messages"]) + [HumanMessage(content=texto)]
 
-    # Invocar grafo
     try:
         novo_estado = severo.invoke(estado)
     except Exception as e:
@@ -192,10 +203,7 @@ async def receber_mensagem(canal_nome: str, request: Request):
         canal.send(numero, "Tive um problema técnico aqui. Pode repetir sua mensagem? 🙏")
         return {"status": "error", "detail": str(e)}
 
-    # Persistir estado atualizado
     store.set(numero, novo_estado, canal_nome)
-
-    # Enviar respostas ao lead
     _enviar_respostas(canal, numero, estado_antes, novo_estado)
 
     logger.info("[SEVERO] %s/%s → fase=%s", canal_nome, numero[:6], novo_estado.get("fase"))
@@ -212,12 +220,13 @@ async def health():
 
 @app.delete("/sessao/{canal}/{numero}")
 async def resetar_sessao(canal: str, numero: str, request: Request):
-    """Reseta sessão de um lead. Requer header Authorization: Bearer <ADMIN_SECRET>."""
+    """Reseta sessão. Fail-closed: sem ADMIN_SECRET configurado → 404."""
     admin_secret = os.getenv("ADMIN_SECRET", "")
-    if admin_secret:
-        auth = request.headers.get("Authorization", "")
-        if auth != f"Bearer {admin_secret}":
-            raise HTTPException(status_code=401, detail="Não autorizado")
+    if not admin_secret:
+        raise HTTPException(status_code=404, detail="Not Found")
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {admin_secret}":
+        raise HTTPException(status_code=401, detail="Não autorizado")
     store.delete(numero, canal)
     return {"status": "resetado", "canal": canal, "numero": numero}
 
