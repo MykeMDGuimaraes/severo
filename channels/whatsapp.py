@@ -7,7 +7,7 @@ import os
 
 import requests
 
-from .base import Channel
+from .base import Channel, ParseResult
 
 logger = logging.getLogger("severo")
 
@@ -24,28 +24,45 @@ def _url(path: str) -> str:
 class WhatsAppChannel(Channel):
     name = "whatsapp"
 
-    def parse_incoming(self, body: dict) -> tuple[str, str] | None:
+    def parse_incoming(self, body: dict) -> ParseResult:
         evento = body.get("event", "")
         if evento not in ("MESSAGES_UPSERT", "messages.upsert"):
-            return None
+            return ParseResult(action="ignore", reason="unknown_event")
 
         data = body.get("data", {})
         key = data.get("key", {})
+        message_id = key.get("id", "")
 
-        # Ignorar mensagens enviadas pelo próprio Severo
         if key.get("fromMe", False):
-            return None
+            return ParseResult(action="ignore", reason="fromMe", message_id=message_id)
 
         jid: str = key.get("remoteJid", "")
-        numero = jid.replace("@s.whatsapp.net", "").replace("@g.us", "")
+
+        # Drop de grupo ANTES de qualquer strip — senão @g.us viraria "número"
+        if jid.endswith("@g.us"):
+            return ParseResult(action="ignore", reason="group", message_id=message_id)
+
+        numero = jid.replace("@s.whatsapp.net", "")
         if not numero:
-            return None
+            return ParseResult(action="ignore", reason="no_sender", message_id=message_id)
+
+        # Filtro de números internos (equipe) — CSV em INTERNAL_JIDS
+        internos = {
+            n.strip() for n in os.getenv("INTERNAL_JIDS", "").split(",") if n.strip()
+        }
+        if numero in internos:
+            return ParseResult(action="ignore", reason="internal", message_id=message_id)
 
         texto = self._extrair_texto(data.get("message", {}))
         if not texto:
-            return None
+            # Há mídia mas sem texto → fallback fixo (item 7), ainda passa pelo dedup
+            return ParseResult(
+                action="media_fallback", user_id=numero, message_id=message_id
+            )
 
-        return numero, texto
+        return ParseResult(
+            action="process", user_id=numero, text=texto, message_id=message_id
+        )
 
     def _extrair_texto(self, msg_data: dict) -> str:
         return (

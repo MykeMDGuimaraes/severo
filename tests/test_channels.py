@@ -4,50 +4,78 @@ from unittest.mock import patch, MagicMock
 
 # ── WhatsApp ──────────────────────────────────────────────────────────────
 
-def _wpp_body(texto="Olá", from_me=False, jid="5511999@s.whatsapp.net"):
+def _wpp_body(texto="Olá", from_me=False, jid="5511999@s.whatsapp.net", msg_id="MSG1", message=None):
+    if message is None:
+        message = {"conversation": texto}
     return {
         "event": "MESSAGES_UPSERT",
         "data": {
-            "key": {"remoteJid": jid, "fromMe": from_me},
-            "message": {"conversation": texto},
+            "key": {"remoteJid": jid, "fromMe": from_me, "id": msg_id},
+            "message": message,
         },
     }
 
 
-def test_whatsapp_parse_retorna_numero_e_texto():
+def test_whatsapp_parse_process_normal():
     from channels.whatsapp import WhatsAppChannel
     canal = WhatsAppChannel()
-    result = canal.parse_incoming(_wpp_body("Quero saber mais"))
-    assert result == ("5511999", "Quero saber mais")
+    r = canal.parse_incoming(_wpp_body("Quero saber mais", msg_id="X1"))
+    assert r.action == "process"
+    assert r.user_id == "5511999"
+    assert r.text == "Quero saber mais"
+    assert r.message_id == "X1"
 
 
-def test_whatsapp_parse_ignora_from_me():
+def test_whatsapp_parse_dropa_grupo_antes_do_strip():
     from channels.whatsapp import WhatsAppChannel
     canal = WhatsAppChannel()
-    result = canal.parse_incoming(_wpp_body(from_me=True))
-    assert result is None
+    r = canal.parse_incoming(_wpp_body(jid="123456789-987@g.us"))
+    assert r.action == "ignore"
+    assert r.reason == "group"
 
 
-def test_whatsapp_parse_ignora_evento_desconhecido():
+def test_whatsapp_parse_dropa_numero_interno(monkeypatch):
+    monkeypatch.setenv("INTERNAL_JIDS", "5531991258669,5511933006574")
     from channels.whatsapp import WhatsAppChannel
     canal = WhatsAppChannel()
-    body = {"event": "CONNECTION_UPDATE", "data": {}}
-    result = canal.parse_incoming(body)
-    assert result is None
+    r = canal.parse_incoming(_wpp_body(jid="5531991258669@s.whatsapp.net"))
+    assert r.action == "ignore"
+    assert r.reason == "internal"
 
 
-def test_whatsapp_parse_ignora_mensagem_sem_texto():
+def test_whatsapp_parse_dropa_from_me():
     from channels.whatsapp import WhatsAppChannel
     canal = WhatsAppChannel()
-    body = {
-        "event": "MESSAGES_UPSERT",
-        "data": {
-            "key": {"remoteJid": "5511999@s.whatsapp.net", "fromMe": False},
-            "message": {},
-        },
-    }
-    result = canal.parse_incoming(body)
-    assert result is None
+    r = canal.parse_incoming(_wpp_body(from_me=True))
+    assert r.action == "ignore"
+    assert r.reason == "fromMe"
+
+
+def test_whatsapp_parse_evento_desconhecido():
+    from channels.whatsapp import WhatsAppChannel
+    canal = WhatsAppChannel()
+    r = canal.parse_incoming({"event": "CONNECTION_UPDATE", "data": {}})
+    assert r.action == "ignore"
+    assert r.reason == "unknown_event"
+
+
+def test_whatsapp_parse_audio_sem_texto_vira_media_fallback():
+    from channels.whatsapp import WhatsAppChannel
+    canal = WhatsAppChannel()
+    body = _wpp_body(message={"audioMessage": {"seconds": 5}}, msg_id="AUD1")
+    r = canal.parse_incoming(body)
+    assert r.action == "media_fallback"
+    assert r.user_id == "5511999"
+    assert r.message_id == "AUD1"
+
+
+def test_whatsapp_parse_imagem_com_caption_processa():
+    from channels.whatsapp import WhatsAppChannel
+    canal = WhatsAppChannel()
+    body = _wpp_body(message={"imageMessage": {"caption": "olha isso"}}, msg_id="IMG1")
+    r = canal.parse_incoming(body)
+    assert r.action == "process"
+    assert r.text == "olha isso"
 
 
 def test_whatsapp_send_retorna_true_em_sucesso():
