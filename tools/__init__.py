@@ -1,6 +1,7 @@
 from .router import avancar_fase, contornar_objecoes, registrar_lead
 from .whatsapp import criar_instancia_whatsapp, verificar_conexao_whatsapp
 from .pagamento import gerar_link_pagamento
+from .escalacao import escalar_para_humano
 
 ALL_TOOLS = [
     avancar_fase,
@@ -9,4 +10,5 @@ ALL_TOOLS = [
     gerar_link_pagamento,
     criar_instancia_whatsapp,
     verificar_conexao_whatsapp,
+    escalar_para_humano,
 ]
