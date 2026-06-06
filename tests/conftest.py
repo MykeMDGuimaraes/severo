@@ -21,3 +21,5 @@ def test_env(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:test")
     monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "test-secret")
     monkeypatch.setenv("BASE_URL", "https://test.com")
+    monkeypatch.setenv("WEBHOOK_SECRET", "test-webhook-secret")
+    monkeypatch.setenv("INTERNAL_JIDS", "5531991258669,5511999999999")

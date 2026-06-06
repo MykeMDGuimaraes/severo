@@ -30,3 +30,18 @@ def test_validate_lista_todas_vars_ausentes(capsys):
     captured = capsys.readouterr()
     assert "ANTHROPIC_API_KEY" in captured.err
     assert "STRIPE_SECRET_KEY" in captured.err
+
+
+def test_validate_exige_webhook_secret(monkeypatch):
+    import config
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    with pytest.raises(SystemExit):
+        config.validate()
+
+
+def test_validate_exige_internal_jids(monkeypatch):
+    import config
+    monkeypatch.setenv("WEBHOOK_SECRET", "x")
+    monkeypatch.delenv("INTERNAL_JIDS", raising=False)
+    with pytest.raises(SystemExit):
+        config.validate()
