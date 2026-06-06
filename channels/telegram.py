@@ -7,7 +7,7 @@ import os
 
 import requests
 
-from .base import Channel
+from .base import Channel, ParseResult
 
 logger = logging.getLogger("severo")
 
@@ -21,24 +21,26 @@ class TelegramChannel(Channel):
     def _api(self, method: str) -> str:
         return f"https://api.telegram.org/bot{self._token}/{method}"
 
-    def parse_incoming(self, body: dict) -> tuple[str, str] | None:
-        # Ignorar mensagens editadas para evitar reprocessamento
+    def parse_incoming(self, body: dict) -> ParseResult:
         if "edited_message" in body:
-            return None
+            return ParseResult(action="ignore", reason="edited")
 
         message = body.get("message", {})
         if not message:
-            return None
+            return ParseResult(action="ignore", reason="no_message")
 
         chat_id = str(message.get("chat", {}).get("id", ""))
         if not chat_id:
-            return None
+            return ParseResult(action="ignore", reason="no_chat")
 
+        message_id = str(message.get("message_id", ""))
         texto = message.get("text", "").strip()
         if not texto:
-            return None
+            return ParseResult(action="ignore", reason="no_text", message_id=message_id)
 
-        return chat_id, texto
+        return ParseResult(
+            action="process", user_id=chat_id, text=texto, message_id=message_id
+        )
 
     def send(self, chat_id: str, texto: str) -> bool:
         try:

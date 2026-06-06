@@ -98,36 +98,40 @@ def test_whatsapp_send_retorna_false_em_erro():
 
 # ── Telegram ──────────────────────────────────────────────────────────────
 
-def _tg_body(texto="Olá", chat_id=123456789):
+def _tg_body(texto="Olá", chat_id=123456789, msg_id=42):
     return {
         "message": {
+            "message_id": msg_id,
             "chat": {"id": chat_id},
             "text": texto,
         }
     }
 
 
-def test_telegram_parse_retorna_chat_id_e_texto():
+def test_telegram_parse_process():
     from channels.telegram import TelegramChannel
     canal = TelegramChannel()
-    result = canal.parse_incoming(_tg_body("Quero saber mais", chat_id=987654))
-    assert result == ("987654", "Quero saber mais")
+    r = canal.parse_incoming(_tg_body("Quero saber mais", chat_id=987654, msg_id=7))
+    assert r.action == "process"
+    assert r.user_id == "987654"
+    assert r.text == "Quero saber mais"
+    assert r.message_id == "7"
 
 
-def test_telegram_parse_ignora_edited_message():
+def test_telegram_parse_ignora_edited():
     from channels.telegram import TelegramChannel
     canal = TelegramChannel()
-    body = {"edited_message": {"chat": {"id": 123}, "text": "editado"}}
-    result = canal.parse_incoming(body)
-    assert result is None
+    r = canal.parse_incoming({"edited_message": {"chat": {"id": 1}, "text": "x"}})
+    assert r.action == "ignore"
+    assert r.reason == "edited"
 
 
 def test_telegram_parse_ignora_sem_texto():
     from channels.telegram import TelegramChannel
     canal = TelegramChannel()
-    body = {"message": {"chat": {"id": 123}}}
-    result = canal.parse_incoming(body)
-    assert result is None
+    r = canal.parse_incoming({"message": {"message_id": 9, "chat": {"id": 1}}})
+    assert r.action == "ignore"
+    assert r.reason == "no_text"
 
 
 def test_telegram_send_retorna_true_em_sucesso():
